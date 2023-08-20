@@ -8,3 +8,5 @@ protobuf
 redis
 tensorflow
 websockets
+requests
+ccnp

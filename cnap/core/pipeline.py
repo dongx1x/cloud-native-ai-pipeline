@@ -132,11 +132,12 @@ class PipelineManager:
         if self._db.check_table_object_exist(PipelineManager.PIPELINE_TABLE, pipeline_id):
             pipeline_dict = self._db.get_table_object_dict(PipelineManager.PIPELINE_TABLE,
                                                            pipeline_id)
-            pipeline_dict['infer_fps'][infer_info_id] = infer_fps
-            self._db.save_table_object_dict(
-                PipelineManager.PIPELINE_TABLE,
-                pipeline_id,
-                pipeline_dict
-                )
+            if 'infer_fps' in pipeline_dict:
+                pipeline_dict['infer_fps'][infer_info_id] = infer_fps
+                self._db.save_table_object_dict(
+                    PipelineManager.PIPELINE_TABLE,
+                    pipeline_id,
+                    pipeline_dict
+                    )
         else:
             LOG.debug("Pipeline: %s has been unregistered.", pipeline_id)

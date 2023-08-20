@@ -13,9 +13,11 @@ Classes:
     Model: A class for managing an Inference model.
 """
 
+import requests
 import uuid
 from typing import Iterator, Tuple, Any
 from datetime import datetime
+from core.keybroker import AmberKeyBrokerClient
 
 class ModelMetrics:
     """A class that encapsulates the performance metrics of the inference model.
@@ -168,6 +170,7 @@ class ModelInfo:
     """
 
     def __init__(self,
+                 id: str,
                  details: ModelDetails,
                  uploaded_date: datetime,
                  metrics: ModelMetrics):
@@ -178,7 +181,7 @@ class ModelInfo:
             uploaded_date (datetime): The uploaded date of the model.
             metrics (ModelMetrics): The performance metrics of the model.
         """
-        self._id = str(uuid.uuid1())
+        self._id = id
         self._details = details
         self._uploaded_date = uploaded_date
         self._metrics = metrics
@@ -226,15 +229,29 @@ class Model:
         _model_binary (bytes): The binary of the model.
     """
 
-    def __init__(self, model_info: ModelInfo, model_binary: bytes):
+    def __init__(self, server: str, model_id: str):
         """Initialize a Model object.
 
         Args:
             model_info (ModelInfo): The information of the model.
             model_binary (bytes): The binary of the model.
+        Raises:
+            ValueError: If model server or model id is None
         """
-        self._model_info = model_info
-        self._model_binary = model_binary
+        if model_id is None or server is None:
+            raise ValueError("Model server or model id can not be None")
+
+        self._id = model_id
+        self._server = server
+        self._model_info = None
+        self._model_binary = None
+        self._path = None
+        self.get_model_info()
+
+    @property
+    def path(self) -> str:
+        """str: The path to save the model."""
+        return self._path
 
     @property
     def model_info(self) -> ModelInfo:
@@ -250,3 +267,54 @@ class Model:
         """The Iterator for Model class."""
         yield 'model_info', dict(self._model_info)
         yield 'model_binary', self._model_binary
+
+    def get_model_info(self):
+        """Get model info from model server"""
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
+        meta_data_url = self._server + '/' + self._id
+        resp = requests.get(meta_data_url, headers=headers)
+        if resp.status_code not in [200]:
+            raise ConnectionError(f"Connect model server failed, error code: {resp.status_code}")
+        meta_data = resp.json()
+        # Get value from meta_data
+        value = lambda key: None if key not in meta_data else meta_data[key]
+        if value("id") is None or value("url") is None:
+            raise RuntimeError("Model meta data is not valid")
+
+        # Download model to /tmp
+        resp = requests.get(value("url"))
+        if resp.status_code not in [200]:
+            raise ConnectionError(f"Download model from server failed, error code: {resp.status_code}")
+
+        model_data = resp.content
+        model_filename = value("url").split('/')[-1]
+        model_filename = model_filename.replace(".enc", "").strip()
+        self._path = "/tmp/" + model_filename
+
+        if value("encrypted"):
+            model_data = self.decrypt_model(value("kbs"), value("kbs_url"), value("key_id"), model_data)
+
+        open(self._path, "wb").write(model_data)
+
+        model_detail = ModelDetails(value("name"), value("version"), value("framework"),
+                                    value("target"), value("dtype"))
+        model_metrics = ModelMetrics(0, 0, 0, 0, 0)
+        self._model_info = ModelInfo(value("id"), model_detail, 0, model_metrics)
+
+    def decrypt_model(self, kbs, kbs_url, key_id, model_data):
+        """Decrypt the model"""
+        if kbs is None:
+            ValueError("The KBS name/type can not be None")
+        if kbs_url is None:
+            ValueError("The KBS url can not be None")
+        if key_id is None:
+            ValueError("The key id can not be None")
+
+        if kbs == "amber":
+            amber_kbc = AmberKeyBrokerClient()
+            key = amber_kbc.get_key(kbs_url, key_id)
+            return amber_kbc.decrypt_data(model_data, key)

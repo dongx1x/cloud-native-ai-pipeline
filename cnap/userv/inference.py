@@ -205,20 +205,11 @@ class InferenceService(MicroAppBase):
             InferenceInfo: The inference information.
         """
         if self._infer_info is None:
-            req_framework = self.get_env("INFER_FRAMEWORK", "tensorflow")
-            req_target = self.get_env("INFER_TARGET", "object-detection")
+            req_mode_server = self.get_env("INFER_MODEL_SERVER", None)
+            req_mode_id = self.get_env("INFER_MODEL_ID", None)
             req_device = self.get_env("INFER_DEVICE", "cpu")
-            req_model_name = self.get_env("INFER_MODEL_NAME", "ssdmobilenet")
-            req_model_version = self.get_env("INFER_MODEL_VERSION", "1.0")
-            # TODO: get model from model provider
-            # self._model = self.model_provider.get_model(req_model_name, req_model_version
-            #               req_framework, req_target))
-            model_metrics = ModelMetrics(0,0,0,0,0)
-            model_details = ModelDetails(req_model_name, req_model_version,
-                                         req_framework, req_target, 'int8')
-            model_info = ModelInfo(model_details, 0, model_metrics)
-            self._model = Model(model_info, None)
 
+            self._model = Model(req_mode_server, req_mode_id)
             self._infer_info = InferenceInfo(req_device, self._model.model_info.id)
         return self._infer_info
 
@@ -236,8 +227,7 @@ class InferenceService(MicroAppBase):
         """
         if self._inference_engine is None:
             if self.model.model_info.details.framework == "tensorflow":
-                model_path = os.path.abspath(os.path.join(CURR_DIR, "../../demo/model/model.pb"))
-                model_config = TFModelConfig(model_path,
+                model_config = TFModelConfig(self.model.path,
                                              self.model.model_info.details.dtype,
                                              self.model.model_info.details.target,
                                              self.infer_info.device)
